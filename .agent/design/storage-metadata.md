@@ -134,13 +134,97 @@ Crash safety rules:
 - `sync_run.end` is appended only after all mirror writes/deletes for that run are flushed to the selected replica destinations.
 - During compaction, write `okdisk.metadata.compact.tmp`, fsync it, then atomic rename to `okdisk.metadata.jsonl`.
 
-`sync_run_seq` is generated from connected destination logs, not from a local counter:
+## Multi-destination log coordination
 
-```text
-next_sync_run_seq = max(completed sync_run_seq across connected destination logs) + 1
-```
+The append-only log (`okdisk.metadata.jsonl`) exists independently on every configured destination. This section defines the exact rules for writing, reading, and resolving conflicts across multiple destinations.
 
-If connected destination logs disagree about the latest state, backup/restore/repair mutations are blocked until the user confirms reconciliation.
+### Write rules
+
+An event is only considered **successfully written** when it has been appended and fsynced to **every connected configured destination**. There is no partial success.
+
+1. The engine computes `next_sync_run_seq` as `max(completed sync_run_seq across all connected destination logs) + 1`.
+2. For each event, the engine appends the same JSON line (same `event_id`, same `sync_run_seq`, same content) to every connected destination's `okdisk.metadata.jsonl`.
+3. After appending to each destination, fsync that destination's metadata file.
+4. Only after **all** connected destinations have the event appended and fsynced is the write considered successful.
+5. If **any** destination fails to append or fsync (disk full, I/O error, disk unmounted), the entire write fails. The engine throws an error and aborts the current operation.
+6. Destinations that successfully received the event are not rolled back. The divergence is detected and resolved at the next startup read (see below).
+7. The user must fix the failing destination (reconnect the disk, free space, or remove the destination from config) before the next operation can proceed.
+
+### Read rules (startup and pre-operation)
+
+On startup, destination attach, and before any mutating operation, the engine reads and validates logs from all connected destinations:
+
+1. Read `okdisk.metadata.jsonl` from every connected destination.
+2. For each destination, replay the log line by line:
+   - Skip partial last lines (truncated writes from a crash).
+   - Skip lines that fail JSON parse or schema validation (corruption).
+   - Record the count of skipped lines per destination as a corruption report.
+3. For each destination, build a per-destination state model: folder configs, completed sync runs, latest `sync_run_seq`, and reconcile markers.
+4. Compare all per-destination state models to determine agreement or conflict (see conflict detection below).
+5. If all destinations agree, publish the merged in-memory state and proceed normally.
+6. If any destination disagrees or is corrupted, block all mutating operations and present the conflict resolution UI (see conflict resolution below).
+
+### Conflict detection
+
+Two destinations **agree** when all of the following match:
+
+- Same set of `folder_id` values with identical latest `folder.upsert` or `folder.remove` records.
+- Same latest completed `sync_run_seq` and `sync_run_id`.
+- Same set of `state.reconcile` records (by `event_id`).
+
+A destination is classified into one of these states:
+
+| State | Meaning |
+|-------|---------|
+| **healthy** | Log replays cleanly and agrees with the majority. |
+| **stale** | Log replays cleanly but is behind the latest `sync_run_seq` (missing recent events). |
+| **diverged** | Log replays cleanly but has events not present in the majority (e.g., a write succeeded on this destination but failed on others, or a different folder config). |
+| **corrupted** | Log has unparseable lines beyond the expected partial-last-line tolerance, or the file is missing/unreadable. |
+| **offline** | Destination is not connected (disk unmounted, path missing). Excluded from comparison. |
+
+### Conflict resolution
+
+When destinations are not all healthy, the engine blocks mutating operations and presents the user with a diagnostic report and a set of **proposed repair actions**. No repair is performed without explicit user confirmation.
+
+The engine selects a **reference destination** — the healthy destination with the highest `sync_run_seq`. If multiple destinations tie, the one with the most recent `sync_run.end` `emitted_at_utc` wins. If no healthy destination exists, the engine reports unrecoverable and requires manual intervention.
+
+For each non-healthy destination, the engine proposes one of these actions:
+
+**Stale destination — copy log:**
+- Copy the reference destination's `okdisk.metadata.jsonl` to the stale destination, replacing its log.
+- Re-mirror `tree/` from the reference destination **only for folders where this destination is a selected replica** (per the folder's replica policy). If this destination does not hold payload data for a folder, only the log is copied — no `tree/` mirror is needed.
+- Action message: "Destination X is behind by N sync runs. Copy the latest log from destination Y? (File mirror will be updated for folders stored on this destination.)"
+
+**Diverged destination — replace log:**
+- Replace the diverged destination's `okdisk.metadata.jsonl` with the reference destination's log.
+- Re-mirror `tree/` from the reference destination **only for folders where this destination is a selected replica**.
+- Action message: "Destination X has diverged. Replace its log with destination Y's state? (File mirror will be updated for folders stored on this destination.)"
+
+**Corrupted destination — replace log:**
+- Replace the corrupted destination's `okdisk.metadata.jsonl` with the reference destination's log.
+- Re-mirror `tree/` from the reference destination **only for folders where this destination is a selected replica**.
+- Action message: "Destination X's log is corrupted (N unparseable lines). Replace its log with destination Y's state? (File mirror will be updated for folders stored on this destination.)"
+
+**Offline destination:**
+- Cannot be repaired while offline. The user must reconnect the disk or remove the destination from config.
+- Action message: "Destination X is offline. Reconnect the disk or remove it from configuration."
+
+**No healthy destination:**
+- All destinations are corrupted, diverged, or offline.
+- The engine cannot select a reference. Report unrecoverable with full diagnostic.
+- Action message: "No healthy destination available. Manual recovery required."
+
+### Repair execution
+
+After the user confirms a repair action:
+
+1. The engine copies the reference destination's `okdisk.metadata.jsonl` to the target destination (atomic write: temp file + fsync + rename).
+2. The engine re-mirrors `tree/` from the reference destination to the target destination **only for folders where the target is a selected replica** (rsync-style: copy changed files, delete extra files). For folders where the target is not a replica, only the log is repaired — no `tree/` data is touched.
+3. The engine appends a `state.reconcile` event to **all** connected destinations (including the repaired one) recording the repair: which destination was repaired, what action was taken, and which destination was the reference.
+4. The engine re-reads all destination logs to confirm agreement.
+5. If all destinations now agree, unblock mutating operations and publish the merged state.
+
+If the repair fails (e.g., the target destination goes offline mid-repair), the engine reports the failure and leaves the destination in its current state for the user to address.
 
 ## Event types
 
@@ -257,7 +341,7 @@ Across connected destinations:
 - `sync_run_id` must match for destinations claiming the same `sync_run_seq`.
 - If one destination is behind or diverged, mark it stale/diverged and block mutating operations.
 - The UI/CLI must warn the user and require explicit confirmation before the service updates all connected destinations to the latest healthy state.
-- After confirmed reconciliation, append missing metadata/control records to every connected configured destination and re-mirror missing files to required replica stores.
+- After confirmed reconciliation, append missing metadata/control records to every connected configured destination and re-mirror missing files to replica stores that hold payload data for the affected folders.
 
 ## Compaction
 

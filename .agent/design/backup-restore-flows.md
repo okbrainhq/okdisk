@@ -2,23 +2,17 @@
 
 ## Startup state load and log reconciliation
 
-On startup, destination attach, and before any backup/restore/verification mutation, the service rebuilds state from configured destination folders:
+On startup, destination attach, and before any backup/restore/verification mutation, the engine rebuilds state from configured destination folders. The exact rules for reading, writing, and resolving conflicts across multiple destination logs are defined in [Multi-destination log coordination](./storage-metadata.md#multi-destination-log-coordination).
+
+Summary:
 
 1. Read `destinations.json` from the configured local path.
 2. For each destination root, read or initialize `okdisk.store.json`.
-3. Replay each connected destination's `okdisk.metadata.jsonl` into a per-destination state model. This yields folder configs and completed sync runs.
-4. The file index is NOT built from the log. It is built on demand by walking `tree/` at restore/verify time. For UI status display, a lightweight `tree/` file count can be computed lazily.
-5. Compare folder configs, latest completed sync runs, and reconcile markers across connected destinations.
-6. If all connected destination logs agree, publish the merged in-memory state to the UI/CLI.
-7. If logs disagree, block mutating operations and show a warning.
-
-Mismatch handling:
-
-- The service selects a candidate latest healthy state using highest completed `sync_run_seq`, matching `sync_run_id`, valid metadata replay, and successful payload checks.
-- The UI/CLI must show which destinations are stale/diverged and what will be updated.
-- The service must not update stale destinations automatically.
-- Only after explicit user confirmation, append reconcile records and any missing metadata/data needed to update all connected destinations to the latest healthy state.
-- If there is no single healthy latest state, require manual destination selection or abort with a clear error.
+3. Read and replay each connected destination's `okdisk.metadata.jsonl` (skip partial/corrupt lines, record corruption report).
+4. Build per-destination state models: folder configs, completed sync runs, latest `sync_run_seq`, reconcile markers.
+5. Compare all per-destination state models to classify each as healthy, stale, diverged, corrupted, or offline.
+6. If all destinations are healthy and agree, publish the merged in-memory state and proceed.
+7. If any destination is not healthy, block mutating operations and present the conflict resolution UI with proposed repair actions. No repair is performed without explicit user confirmation.
 
 The in-memory state is a working cache only. It is always rebuildable from destination logs and is never treated as durable truth.
 
