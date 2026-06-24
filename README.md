@@ -1,31 +1,35 @@
 # OKDisk
 
-OKDisk is a SwiftPM prototype for reliable folder backup/restore to ordinary destination folders.
+OKDisk is a SwiftPM prototype for reliable folder backup/restore to ordinary destination folders on macOS.
 
-## Targets
+## What is implemented
 
-- `OKDiskCore` — config, destination store, metadata replay, backup, restore, verify, repair, reconcile.
-- `OKDiskService` — thin service executable with an `OperationCoordinator` actor wrapper.
-- `okdiskctl` — JSON-capable CLI used by e2e tests.
-- `OKDiskCoreTests` / `OKDiskE2ETests` — executable test runners because this host toolchain does not provide XCTest.
+- `OKDiskCore` — local destination config, destination store initialization, JSONL metadata replay, rsync-style `tree/` mirroring, restore, deep verification, repair, and confirmed reconciliation.
+- `OKDiskService` / `OperationCoordinator` — one protocol-shaped async service surface that serializes mutating jobs for menu bar/CLI callers.
+- `OKDiskApp` — native SwiftUI menu bar app scaffold that starts the engine and exposes a minimal XPC status endpoint (`com.okdisk.service.xpc`).
+- `OKDiskCoreTests` / `OKDiskE2ETests` — temp-folder tests covering backup, incremental mirror behavior, restore scopes, verification, fault recovery, repair, reconciliation, and config isolation.
+
+No management GUI windows or CLI are included yet.
 
 ## Scripts
 
 ```bash
-./scripts/build.sh
-./scripts/test.sh
-./scripts/test-e2e.sh
+./scripts/build.sh          # builds OKDisk-Dev.app
+./scripts/build.sh --prod   # builds OKDisk.app
+./scripts/run.sh            # opens the dev menu bar app
+./scripts/test.sh           # runs tests and builds the dev app
+./scripts/test-e2e.sh       # runs just the E2E suite
 ```
 
-## CLI smoke flow
+## Programmatic smoke flow
 
-```bash
-ROOT=$(mktemp -d /tmp/okdisk-e2e.XXXXXX)
-mkdir -p "$ROOT/src/Documents"
-echo hello > "$ROOT/src/Documents/a.txt"
-.build/debug/okdiskctl --config "$ROOT/config/destinations.json" --json destinations attach "$ROOT/dest-a"
-.build/debug/okdiskctl --config "$ROOT/config/destinations.json" --json destinations attach "$ROOT/dest-b"
-.build/debug/okdiskctl --config "$ROOT/config/destinations.json" --json folders add "$ROOT/src/Documents" --replicas 2 --large-file-threshold 1024
-.build/debug/okdiskctl --config "$ROOT/config/destinations.json" --json backup --all
-.build/debug/okdiskctl --config "$ROOT/config/destinations.json" --json verify --deep
+```swift
+let service = OKDiskService(configPath: "/tmp/okdisk/config/destinations.json", environment: .test)
+try await service.attachDestination(.init(rootPath: "/tmp/okdisk/dest-a"))
+try await service.attachDestination(.init(rootPath: "/tmp/okdisk/dest-b"))
+let folder = try await service.addFolder(.init(sourcePath: "/tmp/okdisk/src/Documents", replicaCount: 2))
+let backupID = try await service.startBackup(folderID: folder.folderID)
+let verifyID = try await service.startVerification(.init(deep: true))
 ```
+
+Destination config stores only `destination_roots`; source-folder configuration and sync history live in each destination's `okdisk.metadata.jsonl`, while payloads are mirrored directly under `data/hosts/<hostname>/<folder_id>/tree/`.
