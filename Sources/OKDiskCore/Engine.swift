@@ -21,6 +21,23 @@ struct LoadedState {
     }
 }
 
+private struct TreeReference: Hashable {
+    var hostname: String
+    var folderID: String
+
+    init(hostname: String, folderID: String) {
+        self.hostname = hostname.lowercased()
+        self.folderID = folderID
+    }
+}
+
+private struct StoredTreeCandidate {
+    var reference: TreeReference
+    var hostPath: String
+    var folderPath: String
+    var treePath: String
+}
+
 public final class OKDiskEngine {
     public let configStore: DestinationConfigStore
     public let hostname: String
@@ -368,6 +385,35 @@ public final class OKDiskEngine {
         return summary
     }
 
+    public func pruneDestination(_ request: PruneDestinationRequest) throws -> OperationSummary {
+        guard request.confirmed else { throw OKDiskError.pruneNotConfirmed }
+        let state = try loadState()
+        try state.requireNoConflicts()
+        guard !state.connected.isEmpty else { throw OKDiskError.noDestinations }
+
+        let targets = try pruneTargets(for: request, state: state)
+        var summary = OperationSummary()
+
+        for destination in targets {
+            let linkedReferences = activeTreeReferences(for: destination, state: state)
+            for candidate in try storedTreeCandidates(in: destination) where !linkedReferences.contains(candidate.reference) {
+                let snapshot = try FileMirror.snapshotTree(rootPath: candidate.treePath)
+                let deletedFiles = snapshot.nodes.values.filter { $0.kind != .directory }.count
+                try okdiskRemoveItemIfExists(candidate.treePath)
+                okdiskFsyncDirectory(candidate.folderPath)
+                try removeDirectoryIfEmpty(candidate.folderPath)
+                try removeDirectoryIfEmpty(candidate.hostPath)
+                summary.filesDeleted += deletedFiles
+                summary.prunedTrees += 1
+            }
+        }
+
+        summary.message = summary.prunedTrees == 0
+            ? "No unlinked trees to prune"
+            : "Pruned \(summary.prunedTrees) unlinked tree(s)"
+        return summary
+    }
+
     public func confirmUpdateDestinationsToLatest(_ request: ReconcileRequest) throws -> OperationSummary {
         guard request.confirmed else { throw OKDiskError.reconciliationNotConfirmed }
         let state = try loadState()
@@ -524,6 +570,62 @@ public final class OKDiskEngine {
             return [folder]
         }
         return state.activeFolders
+    }
+
+    private func pruneTargets(for request: PruneDestinationRequest, state: LoadedState) throws -> [DestinationContext] {
+        guard let rawPath = request.destinationRootPath?.trimmingCharacters(in: .whitespacesAndNewlines), !rawPath.isEmpty else {
+            return state.connected
+        }
+        let canonical = okdiskCanonicalExistingPath(rawPath)
+        guard let destination = state.connected.first(where: { $0.canonicalRootPath == canonical || okdiskCanonicalExistingPath($0.configuredRootPath) == canonical }) else {
+            throw OKDiskError.destinationUnavailable(rawPath)
+        }
+        return [destination]
+    }
+
+    private func activeTreeReferences(for destination: DestinationContext, state: LoadedState) -> Set<TreeReference> {
+        var references = Set<TreeReference>()
+        for folder in state.activeFolders {
+            let storeIDs = replicaStoreIDs(for: folder, from: state.connected)
+            if storeIDs.contains(destination.storeID) {
+                references.insert(TreeReference(hostname: folder.hostname, folderID: folder.folderID))
+            }
+        }
+        return references
+    }
+
+    private func storedTreeCandidates(in destination: DestinationContext) throws -> [StoredTreeCandidate] {
+        let hostsRoot = destination.dataRootPath + "/hosts"
+        guard okdiskIsDirectory(hostsRoot) else { return [] }
+        let fm = FileManager.default
+        var candidates: [StoredTreeCandidate] = []
+
+        for hostname in try fm.contentsOfDirectory(atPath: hostsRoot).sorted() {
+            let hostPath = hostsRoot + "/" + hostname
+            guard okdiskIsDirectory(hostPath) else { continue }
+            for folderID in try fm.contentsOfDirectory(atPath: hostPath).sorted() {
+                let folderPath = hostPath + "/" + folderID
+                guard okdiskIsDirectory(folderPath) else { continue }
+                let treePath = folderPath + "/tree"
+                guard okdiskIsDirectory(treePath) else { continue }
+                candidates.append(StoredTreeCandidate(
+                    reference: TreeReference(hostname: hostname, folderID: folderID),
+                    hostPath: hostPath,
+                    folderPath: folderPath,
+                    treePath: treePath
+                ))
+            }
+        }
+        return candidates
+    }
+
+    private func removeDirectoryIfEmpty(_ path: String) throws {
+        guard okdiskIsDirectory(path) else { return }
+        let contents = try FileManager.default.contentsOfDirectory(atPath: path)
+        guard contents.isEmpty else { return }
+        let parent = URL(fileURLWithPath: path).deletingLastPathComponent().path
+        try FileManager.default.removeItem(atPath: path)
+        okdiskFsyncDirectory(parent)
     }
 
     private func selectedReplicas(for folder: FolderConfig, from connected: [DestinationContext]) throws -> [DestinationContext] {

@@ -26,6 +26,7 @@ public enum OperationKind: String, Codable, Sendable {
     case verification
     case repair
     case reconcile
+    case prune
 }
 
 public enum RestoreScope: String, Codable, Sendable {
@@ -134,6 +135,21 @@ public struct RepairRequest: Codable, Equatable, Sendable {
 
     public init(folderID: String? = nil, confirmed: Bool = false) {
         self.folderID = folderID
+        self.confirmed = confirmed
+    }
+}
+
+public struct PruneDestinationRequest: Codable, Equatable, Sendable {
+    public var destinationRootPath: String?
+    public var confirmed: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case destinationRootPath = "destination_root_path"
+        case confirmed
+    }
+
+    public init(destinationRootPath: String? = nil, confirmed: Bool = false) {
+        self.destinationRootPath = destinationRootPath
         self.confirmed = confirmed
     }
 }
@@ -392,6 +408,7 @@ public struct OperationSummary: Codable, Equatable, Sendable {
     public var verificationIssues: Int
     public var repairedFiles: Int
     public var reconciledDestinations: Int
+    public var prunedTrees: Int
     public var outputPath: String?
     public var message: String?
 
@@ -404,6 +421,7 @@ public struct OperationSummary: Codable, Equatable, Sendable {
         case verificationIssues = "verification_issues"
         case repairedFiles = "repaired_files"
         case reconciledDestinations = "reconciled_destinations"
+        case prunedTrees = "pruned_trees"
         case outputPath = "output_path"
         case message
     }
@@ -417,6 +435,7 @@ public struct OperationSummary: Codable, Equatable, Sendable {
         verificationIssues: Int = 0,
         repairedFiles: Int = 0,
         reconciledDestinations: Int = 0,
+        prunedTrees: Int = 0,
         outputPath: String? = nil,
         message: String? = nil
     ) {
@@ -428,6 +447,7 @@ public struct OperationSummary: Codable, Equatable, Sendable {
         self.verificationIssues = verificationIssues
         self.repairedFiles = repairedFiles
         self.reconciledDestinations = reconciledDestinations
+        self.prunedTrees = prunedTrees
         self.outputPath = outputPath
         self.message = message
     }
@@ -498,6 +518,7 @@ public enum OKDiskError: Error, CustomStringConvertible, LocalizedError {
     case faultInjected(String)
     case reconciliationNotConfirmed
     case repairNotConfirmed
+    case pruneNotConfirmed
     case unrecoverable(String)
 
     public var description: String {
@@ -518,6 +539,7 @@ public enum OKDiskError: Error, CustomStringConvertible, LocalizedError {
         case .faultInjected(let message): return "Fault injected: \(message)"
         case .reconciliationNotConfirmed: return "Reconciliation requires explicit confirmation"
         case .repairNotConfirmed: return "Repair requires explicit confirmation"
+        case .pruneNotConfirmed: return "Prune requires explicit confirmation"
         case .unrecoverable(let message): return "Unrecoverable: \(message)"
         }
     }

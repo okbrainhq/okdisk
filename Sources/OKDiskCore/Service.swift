@@ -16,6 +16,7 @@ public protocol OKDiskServiceProtocol: AnyObject {
     func startRestore(_ request: RestoreRequest) async throws -> String
     func startVerification(_ request: VerifyRequest) async throws -> String
     func startRepair(_ request: RepairRequest) async throws -> String
+    func startPruneDestination(_ request: PruneDestinationRequest) async throws -> String
     func getStateConflicts() async throws -> [DestinationStateConflict]
     func confirmUpdateDestinationsToLatest(_ request: ReconcileRequest) async throws -> String
     func cancelOperation(_ operationID: String) async throws
@@ -184,6 +185,12 @@ public final class OKDiskService: OKDiskServiceProtocol {
     public func startRepair(_ request: RepairRequest) async throws -> String {
         try await coordinator.runOperation(kind: .repair) {
             OperationPayload(summary: try engine.repair(request), verifyReport: nil)
+        }
+    }
+
+    public func startPruneDestination(_ request: PruneDestinationRequest) async throws -> String {
+        try await coordinator.runOperation(kind: .prune) {
+            OperationPayload(summary: try engine.pruneDestination(request), verifyReport: nil)
         }
     }
 

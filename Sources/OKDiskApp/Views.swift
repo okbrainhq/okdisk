@@ -151,7 +151,7 @@ struct DashboardOverviewPane: View {
 
                 SectionCard("Recent Activity", systemImage: "clock.arrow.circlepath") {
                     if model.recentOperations.isEmpty {
-                        EmptyState(title: "No GUI-triggered operations yet", message: "Run backup, verify, restore, or reconcile from the app to see summaries here.")
+                        EmptyState(title: "No GUI-triggered operations yet", message: "Run backup, verify, restore, prune, or reconcile from the app to see summaries here.")
                     } else {
                         VStack(spacing: 8) {
                             ForEach(model.recentOperations.prefix(3), id: \.id) { operation in
@@ -260,12 +260,22 @@ struct DestinationRow: View {
                 }
             }
 
-            Button(role: .destructive) {
-                Task { await model.removeDestination(destination) }
-            } label: {
-                Label("Remove", systemImage: "minus.circle")
+            VStack(alignment: .trailing, spacing: 8) {
+                Button(role: .destructive) {
+                    Task { await model.pruneDestination(destination) }
+                } label: {
+                    Label("Prune", systemImage: "trash")
+                }
+                .disabled(!model.canRunDataOperation || destination.state == .offline)
+                .accessibilityIdentifier(OKDiskAX.pruneDestination)
+
+                Button(role: .destructive) {
+                    Task { await model.removeDestination(destination) }
+                } label: {
+                    Label("Remove", systemImage: "minus.circle")
+                }
+                .disabled(!model.canMutate)
             }
-            .disabled(!model.canMutate)
         }
         .padding(12)
         .background(Color(nsColor: .controlBackgroundColor))
@@ -930,6 +940,7 @@ struct OperationSummaryLine: View {
                 if summary.verificationIssues > 0 { Text("Issues: \(summary.verificationIssues)") }
                 if summary.repairedFiles > 0 { Text("Repaired: \(summary.repairedFiles)") }
                 if summary.reconciledDestinations > 0 { Text("Reconciled: \(summary.reconciledDestinations)") }
+                if summary.prunedTrees > 0 { Text("Pruned trees: \(summary.prunedTrees)") }
                 if summary.bytesMirrored > 0 { Text(ByteCountFormatter.string(fromByteCount: summary.bytesMirrored, countStyle: .file)) }
                 if summary.bytesRestored > 0 { Text(ByteCountFormatter.string(fromByteCount: summary.bytesRestored, countStyle: .file)) }
             }

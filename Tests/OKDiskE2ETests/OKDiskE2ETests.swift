@@ -37,6 +37,7 @@ struct OKDiskE2ETestRunner {
             ("initial replica placement randomly selects destinations", testInitialReplicaPlacementRandomlySelectsDestinations),
             ("interrupted run self-corrects and repair uses healthy replica", testInterruptedRunSelfCorrectsAndRepairUsesHealthyReplica),
             ("log mismatch blocks backup until confirmed reconcile", testLogMismatchBlocksBackupUntilConfirmedReconcile),
+            ("destination prune removes trees no longer linked to source replicas", testDestinationPruneRemovesUnlinkedTrees),
             ("config isolation between two services", testConfigIsolationBetweenTwoServices)
         ]
 
@@ -250,6 +251,92 @@ struct OKDiskE2ETestRunner {
         try "after reconcile\n".write(toFile: source + "/after.txt", atomically: true, encoding: .utf8)
         let backupID = try await service.startBackup(folderID: folder.folderID)
         try expectEqual((await service.getOperation(backupID))?.state, .succeeded, "backup should work after reconcile")
+    }
+
+    static func testDestinationPruneRemovesUnlinkedTrees() async throws {
+        let root = try makeTempRoot("prune-unlinked")
+        let config = root + "/config/destinations.json"
+        let source = root + "/src/Documents"
+        let destA = root + "/dest-a"
+        let destB = root + "/dest-b"
+        let destC = root + "/dest-c"
+        try createFixture(at: source)
+
+        let service = OKDiskService(configPath: config, hostname: "prune-host", environment: .test)
+        _ = try await service.attachDestination(.init(rootPath: destA))
+        _ = try await service.attachDestination(.init(rootPath: destB))
+        _ = try await service.attachDestination(.init(rootPath: destC))
+        let folder = try await service.addFolder(.init(sourcePath: source, replicaCount: 3))
+        let initialStatuses = try await service.listDestinations()
+        let destCStoreID = try unwrap(
+            initialStatuses.first { $0.canonicalRootPath == okdiskCanonicalExistingPath(destC) }?.storeID,
+            "third destination should have a store ID"
+        )
+
+        let initialBackupID = try await service.startBackup(folderID: folder.folderID)
+        try expectEqual((await service.getOperation(initialBackupID))?.state, .succeeded, "initial three-replica backup should succeed")
+        let treeA = okdiskTreeRoot(destinationRoot: destA, hostname: folder.hostname, folderID: folder.folderID)
+        let treeB = okdiskTreeRoot(destinationRoot: destB, hostname: folder.hostname, folderID: folder.folderID)
+        let treeC = okdiskTreeRoot(destinationRoot: destC, hostname: folder.hostname, folderID: folder.folderID)
+        try expectTreesMatch(sourceRoot: source, treeRoot: treeA, excludedPatterns: folder.excludedPatterns)
+        try expectTreesMatch(sourceRoot: source, treeRoot: treeB, excludedPatterns: folder.excludedPatterns)
+        try expectTreesMatch(sourceRoot: source, treeRoot: treeC, excludedPatterns: folder.excludedPatterns)
+
+        try await service.removeDestination(rootPath: destC)
+        let blocked = try await expectThrows("backup should fail while a required replica destination is removed") {
+            _ = try await service.startBackup(folderID: folder.folderID)
+        }
+        guard case OKDiskError.insufficientReplicas(let required, let available) = blocked else {
+            throw TestFailure(message: "expected insufficientReplicas after removing destination, got \(blocked)")
+        }
+        try expectEqual(required, 3, "blocked backup should still require three replicas")
+        try expectEqual(available, 2, "only two destinations should be available after removing one")
+
+        try "after reducing replicas\n".write(toFile: source + "/after-reduction.txt", atomically: true, encoding: .utf8)
+        let updatedFolder = try await service.updateFolder(.init(folderID: folder.folderID, replicaCount: 2))
+        try expectEqual(updatedFolder.replicaCount, 2, "folder should now require two replicas")
+        try expect(!(updatedFolder.replicaStoreIDs ?? []).contains(destCStoreID), "updated folder should not target removed destination")
+        let reducedBackupID = try await service.startBackup(folderID: folder.folderID)
+        try expectEqual((await service.getOperation(reducedBackupID))?.state, .succeeded, "backup should succeed after reducing replicas")
+        try expectTreesMatch(sourceRoot: source, treeRoot: treeA, excludedPatterns: updatedFolder.excludedPatterns)
+        try expectTreesMatch(sourceRoot: source, treeRoot: treeB, excludedPatterns: updatedFolder.excludedPatterns)
+        try expect(!FileManager.default.fileExists(atPath: treeC + "/after-reduction.txt"), "removed destination should not receive reduced-replica backup payloads")
+
+        _ = try await service.attachDestination(.init(rootPath: destC))
+        let staleStatus = await service.getStatus()
+        try expect(!staleStatus.conflicts.isEmpty, "reattached destination should be stale before reconcile")
+        let reconcileID = try await service.confirmUpdateDestinationsToLatest(.init(confirmed: true))
+        try expectEqual((await service.getOperation(reconcileID))?.state, .succeeded, "reconcile should update stale destination metadata")
+        let reconciledStatus = await service.getStatus()
+        try expect(reconciledStatus.conflicts.isEmpty, "conflicts should clear after reconcile")
+
+        try "after reattach\n".write(toFile: source + "/after-reattach.txt", atomically: true, encoding: .utf8)
+        try expect(FileManager.default.fileExists(atPath: treeC), "old unlinked tree should still exist before prune")
+        let reattachedBackupID = try await service.startBackup(folderID: folder.folderID)
+        try expectEqual((await service.getOperation(reattachedBackupID))?.state, .succeeded, "backup should succeed after reattach and reconcile")
+        try expectTreesMatch(sourceRoot: source, treeRoot: treeA, excludedPatterns: updatedFolder.excludedPatterns)
+        try expectTreesMatch(sourceRoot: source, treeRoot: treeB, excludedPatterns: updatedFolder.excludedPatterns)
+        try expect(!FileManager.default.fileExists(atPath: treeC + "/after-reduction.txt"), "reattached destination should not receive older two-replica payloads")
+        try expect(!FileManager.default.fileExists(atPath: treeC + "/after-reattach.txt"), "reattached destination should not receive new payloads when no longer selected")
+
+        let pruneID = try await service.startPruneDestination(.init(destinationRootPath: destC, confirmed: true))
+        let prune = await service.getOperation(pruneID)
+        try expectEqual(prune?.state, .succeeded, "prune operation should succeed")
+        try expectEqual(prune?.summary?.prunedTrees, 1, "prune should remove exactly the unlinked tree")
+        try expect(!FileManager.default.fileExists(atPath: treeC), "prune should remove the old unlinked tree")
+        try expectTreesMatch(sourceRoot: source, treeRoot: treeA, excludedPatterns: updatedFolder.excludedPatterns)
+        try expectTreesMatch(sourceRoot: source, treeRoot: treeB, excludedPatterns: updatedFolder.excludedPatterns)
+
+        let verifyID = try await service.startVerification(.init(deep: true))
+        let verify = await service.getOperation(verifyID)
+        try expect(verify?.verifyReport?.isHealthy == true, "verification should remain healthy after prune: \(verify?.verifyReport?.issues.description ?? "missing report")")
+
+        try "after prune\n".write(toFile: source + "/after-prune.txt", atomically: true, encoding: .utf8)
+        let postPruneBackupID = try await service.startBackup(folderID: folder.folderID)
+        try expectEqual((await service.getOperation(postPruneBackupID))?.state, .succeeded, "backup should still succeed after prune")
+        try expect(!FileManager.default.fileExists(atPath: treeC), "pruned destination should not get a tree recreated by later backups")
+        try expectTreesMatch(sourceRoot: source, treeRoot: treeA, excludedPatterns: updatedFolder.excludedPatterns)
+        try expectTreesMatch(sourceRoot: source, treeRoot: treeB, excludedPatterns: updatedFolder.excludedPatterns)
     }
 
     static func testConfigIsolationBetweenTwoServices() async throws {
