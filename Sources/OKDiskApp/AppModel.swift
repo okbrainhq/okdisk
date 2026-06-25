@@ -46,9 +46,19 @@ final class AppModel: ObservableObject {
 
     var detail: String { status.detail }
 
+    var hasWarning: Bool {
+        lastError != nil || !conflicts.isEmpty || status.state == "attention_needed" ||
+            (status.destinationCount > 0 && status.onlineDestinationCount < status.destinationCount)
+    }
+
+    var menuStatusIconName: String {
+        if isWorking || status.state == "operation_running" { return "arrow.triangle.2.circlepath" }
+        return "externaldrive"
+    }
+
     var iconName: String {
         if isWorking || status.state == "operation_running" { return "arrow.triangle.2.circlepath" }
-        if !conflicts.isEmpty || status.state == "attention_needed" { return "externaldrive.badge.exclamationmark" }
+        if hasWarning { return "externaldrive.badge.exclamationmark" }
         return "externaldrive"
     }
 
@@ -412,6 +422,7 @@ enum OKDiskAX {
     static let menuFolders = "okdisk.menu.folders"
     static let menuRestore = "okdisk.menu.restore"
     static let menuActivity = "okdisk.menu.activity"
+    static let dashboardTabs = "okdisk.dashboard.tabs"
     static let statusLabel = "okdisk.status.label"
     static let statusDetail = "okdisk.status.detail"
     static let refreshButton = "okdisk.refresh"
