@@ -611,6 +611,8 @@ struct WindowHeader: View {
                 .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.top, 8)
+        .padding(.bottom, 12)
     }
 }
 
