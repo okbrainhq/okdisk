@@ -34,6 +34,7 @@ struct OKDiskE2ETestRunner {
     static func main() async {
         let tests: [(String, () async throws -> Void)] = [
             ("backup/restore/verify/incremental metadata path", testBackupRestoreVerifyIncrementalAndMetadata),
+            ("initial replica placement randomly selects destinations", testInitialReplicaPlacementRandomlySelectsDestinations),
             ("interrupted run self-corrects and repair uses healthy replica", testInterruptedRunSelfCorrectsAndRepairUsesHealthyReplica),
             ("log mismatch blocks backup until confirmed reconcile", testLogMismatchBlocksBackupUntilConfirmedReconcile),
             ("config isolation between two services", testConfigIsolationBetweenTwoServices)
@@ -115,6 +116,59 @@ struct OKDiskE2ETestRunner {
         let finalVerifyID = try await service.startVerification(.init(deep: true))
         let finalVerify = await service.getOperation(finalVerifyID)
         try expect(finalVerify?.verifyReport?.isHealthy == true, "final verification should be healthy: \(finalVerify?.verifyReport?.issues.description ?? "missing report")")
+    }
+
+    static func testInitialReplicaPlacementRandomlySelectsDestinations() async throws {
+        let root = try makeTempRoot("random-replicas")
+        let config = root + "/config/destinations.json"
+        let sourceA = root + "/src/Documents-A"
+        let sourceB = root + "/src/Documents-B"
+        let destA = root + "/dest-a"
+        let destB = root + "/dest-b"
+        let destC = root + "/dest-c"
+        try createFixture(at: sourceA)
+        try createFixture(at: sourceB)
+        try "second source\n".write(toFile: sourceB + "/only-b.txt", atomically: true, encoding: .utf8)
+
+        let service = OKDiskService(configPath: config, hostname: "random-host", environment: .test)
+        _ = try await service.attachDestination(.init(rootPath: destA))
+        _ = try await service.attachDestination(.init(rootPath: destB))
+        _ = try await service.attachDestination(.init(rootPath: destC))
+        let folderA = try await service.addFolder(.init(sourcePath: sourceA, replicaCount: 2))
+        let folderB = try await service.addFolder(.init(sourcePath: sourceB, replicaCount: 2))
+        let replicaIDsA = try replicaStoreIDs(folderA)
+        let replicaIDsB = try replicaStoreIDs(folderB)
+
+        let destinations = try await service.listDestinations()
+        let rootByStoreID = Dictionary(uniqueKeysWithValues: try destinations.map { destination -> (String, String) in
+            guard let storeID = destination.storeID else { throw TestFailure(message: "destination should have store ID") }
+            return (storeID, destination.rootPath)
+        })
+        let storeIDs = Set(rootByStoreID.keys)
+        for replicaIDs in [replicaIDsA, replicaIDsB] {
+            try expectEqual(replicaIDs.count, 2, "folder should select the requested replica count")
+            try expectEqual(Set(replicaIDs).count, 2, "folder should not select the same destination twice")
+            try expect(Set(replicaIDs).isSubset(of: storeIDs), "selected replicas should be attached destinations")
+        }
+
+        let listedFolders = try await service.listFolders()
+        try expectEqual(listedFolders.first { $0.folderID == folderA.folderID }?.replicaStoreIDs, replicaIDsA, "replica placement should replay from metadata")
+        try expectEqual(listedFolders.first { $0.folderID == folderB.folderID }?.replicaStoreIDs, replicaIDsB, "replica placement should replay from metadata")
+
+        let backupID = try await service.startBackup(folderID: nil)
+        try expectEqual((await service.getOperation(backupID))?.state, .succeeded, "random replica backup should succeed")
+
+        for folder in [folderA, folderB] {
+            let selectedStoreIDs = Set(try replicaStoreIDs(folder))
+            for (storeID, destinationRoot) in rootByStoreID {
+                let tree = okdiskTreeRoot(destinationRoot: destinationRoot, hostname: folder.hostname, folderID: folder.folderID)
+                if selectedStoreIDs.contains(storeID) {
+                    try expectTreesMatch(sourceRoot: folder.sourcePath, treeRoot: tree, excludedPatterns: folder.excludedPatterns)
+                } else {
+                    try expect(!FileManager.default.fileExists(atPath: tree), "unselected destination should not receive payload tree")
+                }
+            }
+        }
     }
 
     static func testInterruptedRunSelfCorrectsAndRepairUsesHealthyReplica() async throws {
@@ -237,6 +291,15 @@ struct OKDiskE2ETestRunner {
         try "deep\n".write(toFile: source + "/nested/deep/c.txt", atomically: true, encoding: .utf8)
         try FileManager.default.createSymbolicLink(atPath: source + "/link-to-a", withDestinationPath: "a.txt")
         try ".ignored\n".write(toFile: source + "/.DS_Store", atomically: true, encoding: .utf8)
+    }
+
+    static func replicaStoreIDs(_ folder: FolderConfig) throws -> [String] {
+        guard let replicaStoreIDs = folder.replicaStoreIDs else {
+            throw TestFailure(message: "folder should store selected replica destination IDs")
+        }
+        try expectEqual(replicaStoreIDs.count, folder.replicaCount, "replica store ID count should match replica count")
+        try expectEqual(Set(replicaStoreIDs).count, replicaStoreIDs.count, "replica store IDs should be unique")
+        return replicaStoreIDs
     }
 
     static func assertMetadataContainsOnlyControlEvents(destinationRoot: String) throws {

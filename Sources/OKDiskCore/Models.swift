@@ -151,6 +151,7 @@ public struct FolderConfig: Codable, Equatable, Sendable {
     public var hostname: String
     public var sourcePath: String
     public var replicaCount: Int
+    public var replicaStoreIDs: [String]?
     public var excludedPatterns: [String]
     public var removed: Bool
 
@@ -159,6 +160,7 @@ public struct FolderConfig: Codable, Equatable, Sendable {
         case hostname
         case sourcePath = "source_path"
         case replicaCount = "replica_count"
+        case replicaStoreIDs = "replica_store_ids"
         case excludedPatterns = "excluded_patterns"
         case removed
     }
@@ -168,6 +170,7 @@ public struct FolderConfig: Codable, Equatable, Sendable {
         hostname: String,
         sourcePath: String,
         replicaCount: Int,
+        replicaStoreIDs: [String]? = nil,
         excludedPatterns: [String] = [".DS_Store", ".okdisk/**"],
         removed: Bool = false
     ) {
@@ -175,6 +178,7 @@ public struct FolderConfig: Codable, Equatable, Sendable {
         self.hostname = hostname
         self.sourcePath = sourcePath
         self.replicaCount = replicaCount
+        self.replicaStoreIDs = replicaStoreIDs
         self.excludedPatterns = excludedPatterns
         self.removed = removed
     }
