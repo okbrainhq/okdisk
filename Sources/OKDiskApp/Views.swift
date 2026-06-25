@@ -84,8 +84,7 @@ struct DashboardOverviewPane: View {
             VStack(alignment: .leading, spacing: 16) {
                 WindowHeader(
                     title: "OKDisk",
-                    subtitle: "Manual backup to ordinary destination folders",
-                    systemImage: model.iconName
+                    subtitle: "Manual backup to ordinary destination folders"
                 )
 
                 SectionCard("Status", systemImage: "waveform.path.ecg") {
@@ -175,8 +174,7 @@ struct DestinationsWindow: View {
         VStack(alignment: .leading, spacing: 16) {
             WindowHeader(
                 title: "Destinations",
-                subtitle: "Attach ordinary folders or external volumes as OKDisk backup destinations.",
-                systemImage: "externaldrive"
+                subtitle: "Attach ordinary folders or external volumes as OKDisk backup destinations."
             )
 
             HStack {
@@ -293,8 +291,7 @@ struct FoldersWindow: View {
         VStack(alignment: .leading, spacing: 16) {
             WindowHeader(
                 title: "Folders",
-                subtitle: "Manage source folders and replica counts stored in destination metadata.",
-                systemImage: "folder"
+                subtitle: "Manage source folders and replica counts stored in destination metadata."
             )
 
             HStack {
@@ -419,8 +416,7 @@ struct AddFolderSheet: View {
         VStack(alignment: .leading, spacing: 16) {
             WindowHeader(
                 title: "Add Source Folder",
-                subtitle: "Choose a folder and how many destination replicas OKDisk should maintain.",
-                systemImage: "folder.badge.plus"
+                subtitle: "Choose a folder and how many destination replicas OKDisk should maintain."
             )
 
             VStack(alignment: .leading, spacing: 8) {
@@ -496,8 +492,7 @@ struct RestoreWindow: View {
         VStack(alignment: .leading, spacing: 16) {
             WindowHeader(
                 title: "Restore",
-                subtitle: "Restore a full folder, subfolder, or single file to a chosen output directory.",
-                systemImage: "arrow.down.doc"
+                subtitle: "Restore a full folder, subfolder, or single file to a chosen output directory."
             )
 
             Form {
@@ -603,21 +598,13 @@ private extension View {
 struct WindowHeader: View {
     let title: String
     let subtitle: String
-    let systemImage: String
 
     var body: some View {
-        HStack(alignment: .center, spacing: 12) {
-            Image(systemName: systemImage)
-                .font(.largeTitle)
-                .foregroundStyle(Color.accentColor)
-                .frame(width: 44)
-            VStack(alignment: .leading, spacing: 4) {
-                Text(title)
-                    .font(.largeTitle.bold())
-                Text(subtitle)
-                    .foregroundStyle(.secondary)
-            }
-            Spacer()
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title)
+                .font(.largeTitle.bold())
+            Text(subtitle)
+                .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
