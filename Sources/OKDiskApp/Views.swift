@@ -41,7 +41,7 @@ struct OKDiskMenuContent: View {
     }
 }
 
-private enum DashboardSection: String, Hashable {
+enum DashboardSection: String, Hashable {
     case dashboard
     case destinations
     case folders
@@ -58,11 +58,11 @@ struct DashboardWindow: View {
                 .tabItem { Label("Dashboard", systemImage: "rectangle.grid.2x2") }
                 .tag(DashboardSection.dashboard)
 
-            DestinationsWindow(model: model)
+            DestinationsWindow(model: model, selectedSection: $selectedSection)
                 .tabItem { Label("Destinations", systemImage: "externaldrive") }
                 .tag(DashboardSection.destinations)
 
-            FoldersWindow(model: model)
+            FoldersWindow(model: model, selectedSection: $selectedSection)
                 .tabItem { Label("Folders", systemImage: "folder") }
                 .tag(DashboardSection.folders)
 
@@ -169,6 +169,7 @@ struct DashboardOverviewPane: View {
 
 struct DestinationsWindow: View {
     @ObservedObject var model: AppModel
+    @Binding var selectedSection: DashboardSection
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -194,7 +195,9 @@ struct DestinationsWindow: View {
                 Spacer()
             }
 
-            NotificationStrip(model: model)
+            NotificationStrip(model: model) {
+                selectedSection = .dashboard
+            }
 
             if model.destinations.isEmpty {
                 EmptyState(title: "No destinations attached", message: "Add a writable folder to initialize it as an OKDisk destination.")
@@ -273,6 +276,7 @@ struct DestinationRow: View {
 
 struct FoldersWindow: View {
     @ObservedObject var model: AppModel
+    @Binding var selectedSection: DashboardSection
     @State private var showingAddFolder = false
 
     var body: some View {
@@ -299,7 +303,9 @@ struct FoldersWindow: View {
                 Spacer()
             }
 
-            NotificationStrip(model: model)
+            NotificationStrip(model: model) {
+                selectedSection = .dashboard
+            }
 
             if model.folders.isEmpty {
                 EmptyState(title: "No source folders configured", message: "Add a source folder after attaching enough destinations for its replica count.")
@@ -360,6 +366,13 @@ struct FolderRow: View {
                         Task { await model.verify(deep: false, folderID: folder.folderID) }
                     } label: {
                         Label("Verify", systemImage: "checkmark.seal")
+                    }
+                    .disabled(!model.canMutate)
+
+                    Button {
+                        Task { await model.verify(deep: true, folderID: folder.folderID) }
+                    } label: {
+                        Label("Deep Verify", systemImage: "checkmark.seal.fill")
                     }
                     .disabled(!model.canMutate)
                 }
@@ -657,14 +670,30 @@ struct SummaryMetric: View {
 
 struct NotificationStrip: View {
     @ObservedObject var model: AppModel
+    var onViewActivity: (() -> Void)? = nil
+
+    private var hasIssues: Bool {
+        guard let latest = model.recentOperations.first else { return false }
+        if let issues = latest.summary?.verificationIssues, issues > 0 { return true }
+        if latest.state == .failed { return true }
+        if let msg = latest.errorMessage, !msg.isEmpty { return true }
+        return false
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             if let message = model.lastMessage {
-                Label(message, systemImage: "checkmark.circle")
-                    .font(.caption)
-                    .foregroundStyle(.green)
-                    .lineLimit(3)
+                HStack(spacing: 4) {
+                    Label(message, systemImage: hasIssues ? "exclamationmark.triangle" : "checkmark.circle")
+                        .font(.caption)
+                        .foregroundStyle(hasIssues ? .orange : .green)
+                        .lineLimit(3)
+                    if hasIssues, let onViewActivity {
+                        Button("View Activity") { onViewActivity() }
+                            .font(.caption)
+                            .buttonStyle(.link)
+                    }
+                }
             }
             if let error = model.lastError {
                 Label(error, systemImage: "exclamationmark.triangle")
