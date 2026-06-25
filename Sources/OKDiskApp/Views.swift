@@ -7,98 +7,104 @@ struct OKDiskMenuContent: View {
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .center, spacing: 8) {
-                Image(systemName: model.iconName)
-                    .font(.title3)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("OKDisk")
-                        .font(.headline)
-                    Text(model.environmentName)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
+                Image(systemName: model.menuStatusIconName)
+                    .foregroundStyle(model.hasWarning ? .orange : statusColor(model.status.state, hasConflicts: false))
+                Text("OKDisk")
+                    .font(.headline)
                 Spacer()
-                StatusBadge(text: model.statusLabel, color: statusColor(model.status.state, hasConflicts: !model.conflicts.isEmpty))
+                if model.hasWarning {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.orange)
+                        .accessibilityLabel("Warning")
+                }
             }
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("OKDisk \(model.statusLabel)")
             .accessibilityIdentifier(OKDiskAX.statusLabel)
 
-            Text(model.detail)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .lineLimit(2)
-                .accessibilityIdentifier(OKDiskAX.statusDetail)
-
-            NotificationStrip(model: model)
-
             Divider()
 
             Button {
-                Task { await model.backupAll() }
+                openDashboard()
             } label: {
-                Label("Backup Now", systemImage: "arrow.up.circle")
+                Label("Open Dashboard…", systemImage: "rectangle.grid.2x2")
             }
-            .disabled(!model.canRunDataOperation)
-            .accessibilityIdentifier(OKDiskAX.menuBackupNow)
-
-            Button {
-                Task { await model.verify(deep: false) }
-            } label: {
-                Label("Verify Backups", systemImage: "checkmark.seal")
-            }
-            .disabled(!model.canMutate)
-            .accessibilityIdentifier(OKDiskAX.menuVerify)
-
-            if !model.conflicts.isEmpty {
-                Button {
-                    Task { await model.reconcileConflicts() }
-                } label: {
-                    Label("Update Destinations to Latest…", systemImage: "exclamationmark.triangle")
-                }
-                .disabled(!model.canReconcile)
-                .accessibilityIdentifier(OKDiskAX.reconcileButton)
-            }
-
-            Divider()
-
-            Button("Dashboard…") { open(.dashboard) }
-                .accessibilityIdentifier(OKDiskAX.menuDashboard)
-            Button("Destinations…") { open(.destinations) }
-                .accessibilityIdentifier(OKDiskAX.menuDestinations)
-            Button("Folders…") { open(.folders) }
-                .accessibilityIdentifier(OKDiskAX.menuFolders)
-            Button("Restore…") { open(.restore) }
-                .accessibilityIdentifier(OKDiskAX.menuRestore)
-            Button("Activity…") { open(.activity) }
-                .accessibilityIdentifier(OKDiskAX.menuActivity)
-            Button("Preferences…") { open(.preferences) }
-
-            Divider()
+            .keyboardShortcut("d")
+            .accessibilityIdentifier(OKDiskAX.menuDashboard)
 
             Button("Refresh") {
                 Task { await model.refresh() }
             }
             .accessibilityIdentifier(OKDiskAX.refreshButton)
 
+            Divider()
+
             Button("Quit") {
                 NSApplication.shared.terminate(nil)
             }
             .keyboardShortcut("q")
         }
-        .padding(10)
-        .frame(width: 320)
+        .padding(8)
+        .frame(width: 240)
         .task { await model.refresh() }
     }
 
-    private func open(_ window: OKDiskWindow) {
+    private func openDashboard() {
         NSApplication.shared.activate(ignoringOtherApps: true)
-        openWindow(id: window.rawValue)
+        let dashboardWindows = NSApplication.shared.windows.filter { window in
+            window.title == OKDiskWindow.dashboardTitle || window.identifier?.rawValue == OKDiskWindow.dashboard.rawValue
+        }
+
+        if let existingWindow = dashboardWindows.first {
+            dashboardWindows.dropFirst().forEach { $0.close() }
+            existingWindow.deminiaturize(nil)
+            existingWindow.makeKeyAndOrderFront(nil)
+            return
+        }
+
+        openWindow(id: OKDiskWindow.dashboard.rawValue)
     }
+}
+
+private enum DashboardSection: String, Hashable {
+    case dashboard
+    case destinations
+    case folders
+    case restore
 }
 
 struct DashboardWindow: View {
     @ObservedObject var model: AppModel
-    @Environment(\.openWindow) private var openWindow
+    @State private var selectedSection: DashboardSection = .dashboard
+
+    var body: some View {
+        TabView(selection: $selectedSection) {
+            DashboardOverviewPane(model: model)
+                .tabItem { Label("Dashboard", systemImage: "rectangle.grid.2x2") }
+                .tag(DashboardSection.dashboard)
+
+            DestinationsWindow(model: model)
+                .tabItem { Label("Destinations", systemImage: "externaldrive") }
+                .tag(DashboardSection.destinations)
+
+            FoldersWindow(model: model)
+                .tabItem { Label("Folders", systemImage: "folder") }
+                .tag(DashboardSection.folders)
+
+            RestoreWindow(model: model)
+                .tabItem { Label("Restore", systemImage: "arrow.down.doc") }
+                .tag(DashboardSection.restore)
+        }
+        .accessibilityIdentifier(OKDiskAX.dashboardTabs)
+        .toolbar { RefreshToolbar(model: model) }
+        .task { await model.refresh() }
+    }
+}
+
+struct DashboardOverviewPane: View {
+    @ObservedObject var model: AppModel
 
     var body: some View {
         ScrollView {
@@ -154,14 +160,6 @@ struct DashboardWindow: View {
 
                         Spacer()
                     }
-
-                    HStack {
-                        Button("Destinations…") { open(.destinations) }
-                        Button("Folders…") { open(.folders) }
-                        Button("Restore…") { open(.restore) }
-                        Button("Activity…") { open(.activity) }
-                        Spacer()
-                    }
                 }
 
                 if !model.conflicts.isEmpty {
@@ -190,15 +188,9 @@ struct DashboardWindow: View {
                     }
                 }
             }
-            .padding(20)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
         }
-        .toolbar { RefreshToolbar(model: model) }
-        .task { await model.refresh() }
-    }
-
-    private func open(_ window: OKDiskWindow) {
-        NSApplication.shared.activate(ignoringOtherApps: true)
-        openWindow(id: window.rawValue)
+        .dashboardPaneLayout()
     }
 }
 
@@ -244,9 +236,7 @@ struct DestinationsWindow: View {
                 }
             }
         }
-        .padding(20)
-        .toolbar { RefreshToolbar(model: model) }
-        .task { await model.refresh() }
+        .dashboardPaneLayout()
     }
 
     private func chooseAndAttachDestination() {
@@ -352,12 +342,10 @@ struct FoldersWindow: View {
                 }
             }
         }
-        .padding(20)
+        .dashboardPaneLayout()
         .sheet(isPresented: $showingAddFolder) {
             AddFolderSheet(model: model)
         }
-        .toolbar { RefreshToolbar(model: model) }
-        .task { await model.refresh() }
     }
 }
 
@@ -583,9 +571,7 @@ struct RestoreWindow: View {
                 Spacer()
             }
         }
-        .padding(20)
-        .toolbar { RefreshToolbar(model: model) }
-        .task { await model.refresh() }
+        .dashboardPaneLayout()
         .onAppear { ensureFolderSelection(model.folders) }
         .onChange(of: model.folders) { folders in
             ensureFolderSelection(folders)
@@ -602,99 +588,6 @@ struct RestoreWindow: View {
     }
 }
 
-struct ActivityWindow: View {
-    @ObservedObject var model: AppModel
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            WindowHeader(
-                title: "Activity",
-                subtitle: "Current status and operation summaries from this GUI session.",
-                systemImage: "clock.arrow.circlepath"
-            )
-
-            SectionCard("Current Operation", systemImage: "bolt.horizontal") {
-                if model.isWorking || model.status.activeOperationID != nil {
-                    HStack {
-                        ProgressView()
-                            .controlSize(.small)
-                        Text(model.workingLabel ?? "Operation running")
-                        if let id = model.status.activeOperationID {
-                            Text(id)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                        Spacer()
-                    }
-                } else {
-                    EmptyState(title: "No active operation", message: "OKDisk is ready for backup, restore, verification, or reconcile work.")
-                }
-            }
-
-            NotificationStrip(model: model)
-
-            SectionCard("Recent Operations", systemImage: "list.bullet.rectangle") {
-                if model.recentOperations.isEmpty {
-                    EmptyState(title: "No recent operations", message: "Only operations triggered from this app session are listed here.")
-                } else {
-                    ScrollView {
-                        VStack(spacing: 8) {
-                            ForEach(model.recentOperations, id: \.id) { operation in
-                                OperationRow(operation: operation)
-                            }
-                        }
-                    }
-                    .accessibilityIdentifier(OKDiskAX.activityList)
-                }
-            }
-        }
-        .padding(20)
-        .toolbar {
-            RefreshToolbar(model: model)
-            ToolbarItem {
-                Button("Clear Messages") { model.clearNotifications() }
-            }
-        }
-        .task { await model.refresh() }
-    }
-}
-
-struct PreferencesWindow: View {
-    @ObservedObject var model: AppModel
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            WindowHeader(
-                title: "Preferences",
-                subtitle: "Runtime information for the menu bar app host.",
-                systemImage: "gearshape"
-            )
-
-            SectionCard("Environment", systemImage: "switch.2") {
-                LabeledText(label: "Mode", value: model.environmentName)
-                LabeledText(label: "XPC Service", value: OKDiskXPCListener.defaultServiceName)
-                LabeledText(label: "Polling", value: "Every 3 seconds")
-                Text("Destination paths live in the OKDisk local config. Source folder metadata lives in destination logs.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
-            SectionCard("Status", systemImage: "info.circle") {
-                LabeledText(label: "State", value: model.statusLabel)
-                LabeledText(label: "Detail", value: model.detail)
-                if let lastUpdated = model.lastUpdated {
-                    LabeledText(label: "Last Refresh", value: lastUpdated.formatted(date: .abbreviated, time: .standard))
-                }
-            }
-
-            Spacer()
-        }
-        .padding(20)
-        .toolbar { RefreshToolbar(model: model) }
-        .task { await model.refresh() }
-    }
-}
-
 struct RefreshToolbar: ToolbarContent {
     @ObservedObject var model: AppModel
 
@@ -708,6 +601,13 @@ struct RefreshToolbar: ToolbarContent {
             .disabled(model.isRefreshing)
             .accessibilityIdentifier(OKDiskAX.refreshButton)
         }
+    }
+}
+
+private extension View {
+    func dashboardPaneLayout() -> some View {
+        padding(20)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 }
 
@@ -730,6 +630,7 @@ struct WindowHeader: View {
             }
             Spacer()
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 

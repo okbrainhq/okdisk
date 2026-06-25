@@ -3,11 +3,8 @@ import SwiftUI
 
 enum OKDiskWindow: String {
     case dashboard = "okdisk.dashboard"
-    case destinations = "okdisk.destinations"
-    case folders = "okdisk.folders"
-    case restore = "okdisk.restore"
-    case activity = "okdisk.activity"
-    case preferences = "okdisk.preferences"
+
+    static let dashboardTitle = "OKDisk Dashboard"
 }
 
 @main
@@ -18,40 +15,21 @@ struct OKDiskMenuBarApp: App {
         MenuBarExtra {
             OKDiskMenuContent(model: model)
         } label: {
-            Image(systemName: model.iconName)
-                .accessibilityLabel("OKDisk Status")
-                .accessibilityIdentifier(OKDiskAX.menuIcon)
+            HStack(spacing: 4) {
+                Text("OKDisk")
+                Image(systemName: model.menuStatusIconName)
+                if model.hasWarning {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                }
+            }
+            .accessibilityLabel("OKDisk \(model.statusLabel)")
+            .accessibilityIdentifier(OKDiskAX.menuIcon)
         }
         .menuBarExtraStyle(.menu)
 
-        WindowGroup("OKDisk", id: OKDiskWindow.dashboard.rawValue) {
+        Window(OKDiskWindow.dashboardTitle, id: OKDiskWindow.dashboard.rawValue) {
             DashboardWindow(model: model)
         }
-        .defaultSize(width: 780, height: 560)
-
-        WindowGroup("Destinations", id: OKDiskWindow.destinations.rawValue) {
-            DestinationsWindow(model: model)
-        }
-        .defaultSize(width: 860, height: 520)
-
-        WindowGroup("Folders", id: OKDiskWindow.folders.rawValue) {
-            FoldersWindow(model: model)
-        }
-        .defaultSize(width: 860, height: 560)
-
-        WindowGroup("Restore", id: OKDiskWindow.restore.rawValue) {
-            RestoreWindow(model: model)
-        }
-        .defaultSize(width: 760, height: 520)
-
-        WindowGroup("Activity", id: OKDiskWindow.activity.rawValue) {
-            ActivityWindow(model: model)
-        }
-        .defaultSize(width: 820, height: 520)
-
-        WindowGroup("Preferences", id: OKDiskWindow.preferences.rawValue) {
-            PreferencesWindow(model: model)
-        }
-        .defaultSize(width: 520, height: 360)
+        .defaultSize(width: 980, height: 680)
     }
 }
