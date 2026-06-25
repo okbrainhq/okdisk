@@ -16,7 +16,6 @@ struct OKDiskMenuBarApp: App {
             OKDiskMenuContent(model: model)
         } label: {
             HStack(spacing: 4) {
-                Text("OKDisk")
                 Image(systemName: model.menuStatusIconName)
                 if model.hasWarning {
                     Image(systemName: "exclamationmark.triangle.fill")
