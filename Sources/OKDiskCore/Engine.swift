@@ -98,11 +98,16 @@ public final class OKDiskEngine {
         let sourcePath = okdiskCanonicalExistingPath(request.sourcePath)
         guard okdiskIsDirectory(sourcePath) else { throw OKDiskError.sourceUnavailable(request.sourcePath) }
         let folderID = okdiskFolderID(hostname: hostname, sourcePath: sourcePath)
+        let replicaStoreIDs = try chooseRandomReplicaStoreIDs(
+            replicaCount: request.replicaCount,
+            connected: state.connected
+        )
         let folder = FolderConfig(
             folderID: folderID,
             hostname: hostname,
             sourcePath: sourcePath,
             replicaCount: request.replicaCount,
+            replicaStoreIDs: replicaStoreIDs,
             excludedPatterns: request.excludedPatterns,
             removed: false
         )
@@ -112,6 +117,7 @@ public final class OKDiskEngine {
             sourcePath: folder.sourcePath,
             folderID: folder.folderID,
             replicaCount: folder.replicaCount,
+            replicaStoreIDs: folder.replicaStoreIDs,
             excludedPatterns: folder.excludedPatterns
         )
         try MetadataLog.append(event, to: state.connected)
@@ -126,6 +132,10 @@ public final class OKDiskEngine {
             guard replicaCount > 0, replicaCount <= state.connected.count else {
                 throw OKDiskError.insufficientReplicas(required: replicaCount, available: state.connected.count)
             }
+            folder.replicaStoreIDs = try chooseRandomReplicaStoreIDs(
+                replicaCount: replicaCount,
+                connected: state.connected
+            )
             folder.replicaCount = replicaCount
         }
         if let excluded = request.excludedPatterns { folder.excludedPatterns = excluded }
@@ -135,6 +145,7 @@ public final class OKDiskEngine {
             sourcePath: folder.sourcePath,
             folderID: folder.folderID,
             replicaCount: folder.replicaCount,
+            replicaStoreIDs: folder.replicaStoreIDs,
             excludedPatterns: folder.excludedPatterns
         )
         try MetadataLog.append(event, to: state.connected)
@@ -519,7 +530,50 @@ public final class OKDiskEngine {
         guard connected.count >= folder.replicaCount else {
             throw OKDiskError.insufficientReplicas(required: folder.replicaCount, available: connected.count)
         }
-        return Array(connected.prefix(folder.replicaCount))
+
+        let connectedByStoreID = Dictionary(uniqueKeysWithValues: connected.map { ($0.storeID, $0) })
+        let storeIDs = replicaStoreIDs(for: folder, from: connected)
+        let replicas = storeIDs.compactMap { connectedByStoreID[$0] }
+        guard replicas.count >= folder.replicaCount else {
+            throw OKDiskError.insufficientReplicas(required: folder.replicaCount, available: replicas.count)
+        }
+        return Array(replicas.prefix(folder.replicaCount))
+    }
+
+    private func replicaStoreIDs(for folder: FolderConfig, from connected: [DestinationContext]) -> [String] {
+        if let replicaStoreIDs = folder.replicaStoreIDs, !replicaStoreIDs.isEmpty {
+            return Array(uniqueStoreIDs(replicaStoreIDs).prefix(folder.replicaCount))
+        }
+        return legacyReplicaStoreIDs(for: folder, from: connected)
+    }
+
+    private func legacyReplicaStoreIDs(for folder: FolderConfig, from connected: [DestinationContext]) -> [String] {
+        Array(connected.prefix(folder.replicaCount)).map(\.storeID)
+    }
+
+    private func chooseRandomReplicaStoreIDs(
+        replicaCount: Int,
+        connected: [DestinationContext]
+    ) throws -> [String] {
+        guard replicaCount > 0 else { throw OKDiskError.insufficientReplicas(required: replicaCount, available: connected.count) }
+        guard connected.count >= replicaCount else {
+            throw OKDiskError.insufficientReplicas(required: replicaCount, available: connected.count)
+        }
+
+        let selected = connected.shuffled().prefix(replicaCount).map(\.storeID)
+        guard selected.count == replicaCount else {
+            throw OKDiskError.insufficientReplicas(required: replicaCount, available: selected.count)
+        }
+        return selected
+    }
+
+    private func uniqueStoreIDs(_ storeIDs: [String]) -> [String] {
+        var seen = Set<String>()
+        var unique: [String] = []
+        for storeID in storeIDs where seen.insert(storeID).inserted {
+            unique.append(storeID)
+        }
+        return unique
     }
 
     private func chooseRepairReference(folder: FolderConfig, replicas: [DestinationContext]) throws -> DestinationContext? {

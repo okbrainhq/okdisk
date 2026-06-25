@@ -19,6 +19,7 @@ public struct MetadataEvent: Codable, Equatable, Sendable {
     public var sourcePath: String?
     public var folderID: String?
     public var replicaCount: Int?
+    public var replicaStoreIDs: [String]?
     public var excludedPatterns: [String]?
     public var trigger: String?
     public var summary: BackupRunSummary?
@@ -39,6 +40,7 @@ public struct MetadataEvent: Codable, Equatable, Sendable {
         case sourcePath = "source_path"
         case folderID = "folder_id"
         case replicaCount = "replica_count"
+        case replicaStoreIDs = "replica_store_ids"
         case excludedPatterns = "excluded_patterns"
         case trigger
         case summary
@@ -59,6 +61,7 @@ public struct MetadataEvent: Codable, Equatable, Sendable {
         sourcePath: String? = nil,
         folderID: String? = nil,
         replicaCount: Int? = nil,
+        replicaStoreIDs: [String]? = nil,
         excludedPatterns: [String]? = nil,
         trigger: String? = nil,
         summary: BackupRunSummary? = nil,
@@ -78,6 +81,7 @@ public struct MetadataEvent: Codable, Equatable, Sendable {
         self.sourcePath = sourcePath
         self.folderID = folderID
         self.replicaCount = replicaCount
+        self.replicaStoreIDs = replicaStoreIDs
         self.excludedPatterns = excludedPatterns
         self.trigger = trigger
         self.summary = summary
@@ -183,6 +187,7 @@ enum MetadataLog {
                     hostname: hostname,
                     sourcePath: sourcePath,
                     replicaCount: replicaCount,
+                    replicaStoreIDs: event.replicaStoreIDs,
                     excludedPatterns: event.excludedPatterns ?? [".DS_Store", ".okdisk/**"],
                     removed: false
                 )

@@ -437,6 +437,7 @@ Notes:
 - `tree/` is the **authoritative rsync-style mirror** of the source folder. The presence and content of every file is determined by walking `tree/`, not by replaying log events. This keeps the log tiny and makes backup a simple mirror operation.
 - Metadata/control events are written to every connected configured destination for each mutation.
 - File payloads are stored only on destinations selected by the folder's replica policy.
+- A folder's initial replica destinations are selected randomly and stored as `replica_store_ids` in `folder.upsert`, so later backup/restore/verify operations keep using the same destination stores.
 - `tmp/` can be removed during startup if no completed run references it.
 
 ---
@@ -583,6 +584,7 @@ Records source folder configuration. It is appended to every connected configure
   "source_path": "/Users/arunoda/Documents",
   "folder_id": "sha256-hex",
   "replica_count": 2,
+  "replica_store_ids": ["store-a", "store-c"],
   "excluded_patterns": [".DS_Store", ".okdisk/**"]
 }
 ```
