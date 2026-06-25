@@ -321,7 +321,7 @@ struct FoldersWindow: View {
                 EmptyState(title: "No source folders configured", message: "Add a source folder after attaching enough destinations for its replica count.")
             } else {
                 ScrollView {
-                    VStack(spacing: 10) {
+                    VStack(spacing: 8) {
                         ForEach(model.folders, id: \.folderID) { folder in
                             FolderRow(model: model, folder: folder)
                                 .id(folder.folderID + "-\(folder.replicaCount)")
@@ -350,55 +350,48 @@ struct FolderRow: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .top) {
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack {
-                        StatusBadge(text: "Replicas: \(folder.replicaCount)", color: .blue)
-                        StatusBadge(text: folder.hostname, color: .secondary)
-                    }
-                    PathText(folder.sourcePath)
-                    LabeledText(label: "Folder ID", value: folder.folderID)
-                    if !folder.excludedPatterns.isEmpty {
-                        LabeledText(label: "Excludes", value: folder.excludedPatterns.joined(separator: ", "))
-                    }
-                }
-                Spacer()
-                VStack(alignment: .trailing, spacing: 8) {
-                    Button {
-                        Task { await model.backup(folderID: folder.folderID) }
-                    } label: {
-                        Label("Backup", systemImage: "arrow.up.circle")
-                    }
-                    .disabled(!model.canRunDataOperation)
-
-                    Button {
-                        Task { await model.verify(deep: false, folderID: folder.folderID) }
-                    } label: {
-                        Label("Verify", systemImage: "checkmark.seal")
-                    }
-                    .disabled(!model.canMutate)
-
-                    Button {
-                        Task { await model.verify(deep: true, folderID: folder.folderID) }
-                    } label: {
-                        Label("Deep Verify", systemImage: "checkmark.seal.fill")
-                    }
-                    .disabled(!model.canMutate)
+        VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 4) {
+                PathText(folder.sourcePath)
+                LabeledText(label: "Folder ID", value: folder.folderID)
+                if !folder.excludedPatterns.isEmpty {
+                    LabeledText(label: "Excludes", value: folder.excludedPatterns.joined(separator: ", "))
                 }
             }
 
             Divider()
 
             HStack {
-                Stepper("Replica count: \(replicaCount)", value: $replicaCount, in: 1...max(1, model.destinations.count))
-                    .frame(width: 220, alignment: .leading)
-                Button("Save Replicas") {
-                    Task { await model.updateFolderReplica(folderID: folder.folderID, replicaCount: replicaCount) }
+                HStack(spacing: 8) {
+                    Stepper("Replica count: \(replicaCount)", value: $replicaCount, in: 1...max(1, model.destinations.count))
+                    Button("Save Replicas") {
+                        Task { await model.updateFolderReplica(folderID: folder.folderID, replicaCount: replicaCount) }
+                    }
+                    .disabled(!model.canRunDataOperation || replicaCount == folder.replicaCount)
                 }
-                .disabled(!model.canRunDataOperation || replicaCount == folder.replicaCount)
 
                 Spacer()
+
+                Button {
+                    Task { await model.backup(folderID: folder.folderID) }
+                } label: {
+                    Label("Backup", systemImage: "arrow.up.circle")
+                }
+                .disabled(!model.canRunDataOperation)
+
+                Button {
+                    Task { await model.verify(deep: false, folderID: folder.folderID) }
+                } label: {
+                    Label("Verify", systemImage: "checkmark.seal")
+                }
+                .disabled(!model.canMutate)
+
+                Button {
+                    Task { await model.verify(deep: true, folderID: folder.folderID) }
+                } label: {
+                    Label("Deep Verify", systemImage: "checkmark.seal.fill")
+                }
+                .disabled(!model.canMutate)
 
                 Button(role: .destructive) {
                     Task { await model.removeFolder(folder) }
@@ -408,7 +401,7 @@ struct FolderRow: View {
                 .disabled(!model.canRunDataOperation)
             }
         }
-        .padding(12)
+        .padding(10)
         .background(Color(nsColor: .controlBackgroundColor))
         .clipShape(RoundedRectangle(cornerRadius: 12))
         .accessibilityIdentifier("okdisk.folder.row")
