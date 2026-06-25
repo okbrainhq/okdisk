@@ -346,10 +346,9 @@ struct FolderRow: View {
         VStack(alignment: .leading, spacing: 8) {
             VStack(alignment: .leading, spacing: 4) {
                 HStack(alignment: .center, spacing: 8) {
+                    CopyableHashBadge(hashID: folder.folderID)
                     CopyableTruncatedPath(path: folder.sourcePath)
                         .frame(maxWidth: .infinity, minHeight: 22, maxHeight: 22, alignment: .leading)
-                    Spacer(minLength: 8)
-                    CopyableHashBadge(hashID: folder.folderID)
                 }
                 if !folder.excludedPatterns.isEmpty {
                     LabeledText(label: "Excludes", value: folder.excludedPatterns.joined(separator: ", "))
