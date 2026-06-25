@@ -359,8 +359,8 @@ struct FolderRow: View {
 
             HStack {
                 HStack(spacing: 8) {
-                    Stepper("Replica count: \(replicaCount)", value: $replicaCount, in: 1...max(1, model.destinations.count))
-                    Button("Save Replicas") {
+                    Stepper("Replicas: \(replicaCount)", value: $replicaCount, in: 1...max(1, model.destinations.count))
+                    Button("Save") {
                         Task { await model.updateFolderReplica(folderID: folder.folderID, replicaCount: replicaCount) }
                     }
                     .disabled(!model.canRunDataOperation || replicaCount == folder.replicaCount)
@@ -432,7 +432,7 @@ struct AddFolderSheet: View {
                 }
             }
 
-            Stepper("Replica count: \(replicaCount)", value: $replicaCount, in: 1...max(1, model.destinations.count))
+            Stepper("Replicas: \(replicaCount)", value: $replicaCount, in: 1...max(1, model.destinations.count))
 
             VStack(alignment: .leading, spacing: 8) {
                 Text("Excluded Patterns")
