@@ -229,10 +229,6 @@ struct DestinationRow: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
-            Image(systemName: destination.state == .healthy ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
-                .foregroundStyle(destinationColor(destination.state))
-                .font(.title3)
-
             VStack(alignment: .leading, spacing: 6) {
                 HStack {
                     StatusBadge(text: destination.state.rawValue.capitalized, color: destinationColor(destination.state))
