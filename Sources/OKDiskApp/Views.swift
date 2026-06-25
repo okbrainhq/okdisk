@@ -349,8 +349,12 @@ struct FolderRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             VStack(alignment: .leading, spacing: 4) {
-                PathText(folder.sourcePath)
-                LabeledText(label: "Folder ID", value: folder.folderID)
+                HStack(alignment: .center, spacing: 8) {
+                    CopyableTruncatedPath(path: folder.sourcePath)
+                        .frame(maxWidth: .infinity, minHeight: 22, maxHeight: 22, alignment: .leading)
+                    Spacer(minLength: 8)
+                    CopyableHashBadge(hashID: folder.folderID)
+                }
                 if !folder.excludedPatterns.isEmpty {
                     LabeledText(label: "Excludes", value: folder.excludedPatterns.joined(separator: ", "))
                 }
@@ -725,6 +729,95 @@ struct PathText: View {
             .truncationMode(.middle)
             .textSelection(.enabled)
     }
+}
+
+struct CopyableTruncatedPath: View {
+    let path: String
+    @State private var copied = false
+
+    var body: some View {
+        Button {
+            copyToClipboard(path)
+            showCopiedFeedback()
+        } label: {
+            GeometryReader { proxy in
+                Text(shortenedPath(for: proxy.size.width))
+                    .font(.system(.body, design: .monospaced))
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+            }
+        }
+        .buttonStyle(.plain)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
+        .help(copied ? "Copied full folder path" : "Copy full folder path")
+        .accessibilityLabel("Folder path \(path)")
+        .accessibilityHint(copied ? "Copied full folder path" : "Click to copy full folder path")
+    }
+
+    private func shortenedPath(for width: CGFloat) -> String {
+        guard width.isFinite, width > 0 else { return path }
+        let maxCharacters = max(12, Int(width / 7.3))
+        guard path.count > maxCharacters else { return path }
+        guard maxCharacters > 3 else { return "…" }
+
+        let visibleCharacters = maxCharacters - 1
+        let prefixCount = max(4, visibleCharacters / 2)
+        let suffixCount = max(4, visibleCharacters - prefixCount)
+
+        guard prefixCount + suffixCount + 1 < path.count else { return path }
+        return String(path.prefix(prefixCount)) + "…" + String(path.suffix(suffixCount))
+    }
+
+    private func showCopiedFeedback() {
+        copied = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.4) {
+            copied = false
+        }
+    }
+}
+
+struct CopyableHashBadge: View {
+    let hashID: String
+    @State private var copied = false
+
+    private var shortHash: String {
+        String(hashID.suffix(6))
+    }
+
+    var body: some View {
+        Button {
+            copyToClipboard(hashID)
+            showCopiedFeedback()
+        } label: {
+            Text(shortHash)
+                .font(.system(.caption2, design: .monospaced).weight(.semibold))
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 7)
+                .padding(.vertical, 3)
+                .background(Color.gray.opacity(0.18))
+                .clipShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .fixedSize()
+        .help(copied ? "Copied full folder ID" : "Copy full folder ID")
+        .accessibilityLabel("Folder ID \(hashID)")
+        .accessibilityHint(copied ? "Copied full folder ID" : "Click to copy full folder ID")
+    }
+
+    private func showCopiedFeedback() {
+        copied = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.4) {
+            copied = false
+        }
+    }
+}
+
+private func copyToClipboard(_ value: String) {
+    NSPasteboard.general.clearContents()
+    NSPasteboard.general.setString(value, forType: .string)
 }
 
 struct LabeledText: View {
