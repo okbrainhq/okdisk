@@ -8,46 +8,19 @@ struct OKDiskMenuContent: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .center, spacing: 8) {
-                Image(systemName: model.menuStatusIconName)
-                    .foregroundStyle(model.hasWarning ? .orange : statusColor(model.status.state, hasConflicts: false))
-                Text("OKDisk")
-                    .font(.headline)
-                Spacer()
-                if model.hasWarning {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .foregroundStyle(.orange)
-                        .accessibilityLabel("Warning")
-                }
-            }
-            .accessibilityElement(children: .combine)
-            .accessibilityLabel("OKDisk \(model.statusLabel)")
-            .accessibilityIdentifier(OKDiskAX.statusLabel)
-
-            Divider()
-
             Button {
                 openDashboard()
             } label: {
-                Label("Open Dashboard…", systemImage: "rectangle.grid.2x2")
+                Label("Open Dashboard", systemImage: "rectangle.grid.2x2")
             }
             .keyboardShortcut("d")
             .accessibilityIdentifier(OKDiskAX.menuDashboard)
-
-            Button("Refresh") {
-                Task { await model.refresh() }
-            }
-            .accessibilityIdentifier(OKDiskAX.refreshButton)
-
-            Divider()
 
             Button("Quit") {
                 NSApplication.shared.terminate(nil)
             }
             .keyboardShortcut("q")
         }
-        .padding(8)
-        .frame(width: 240)
         .task { await model.refresh() }
     }
 
