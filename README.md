@@ -6,10 +6,10 @@ OKDisk is a SwiftPM prototype for reliable folder backup/restore to ordinary des
 
 - `OKDiskCore` — local destination config, destination store initialization, JSONL metadata replay, rsync-style `tree/` mirroring, restore, deep verification, repair, and confirmed reconciliation.
 - `OKDiskService` / `OperationCoordinator` — one protocol-shaped async service surface that serializes mutating jobs for menu bar/CLI callers.
-- `OKDiskApp` — native SwiftUI menu bar app scaffold that starts the engine and exposes a minimal XPC status endpoint (`com.okdisk.service.xpc`).
+- `OKDiskApp` — native SwiftUI menu bar app that starts the engine, exposes the XPC status endpoint (`com.okdisk.service.xpc`), and provides management windows for status, destinations, folders, backup, restore, verification, conflicts, activity, and preferences.
 - `OKDiskCoreTests` / `OKDiskE2ETests` — temp-folder tests covering backup, incremental mirror behavior, restore scopes, verification, fault recovery, repair, reconciliation, and config isolation.
 
-No management GUI windows or CLI are included yet.
+No CLI is included yet.
 
 ## Scripts
 
