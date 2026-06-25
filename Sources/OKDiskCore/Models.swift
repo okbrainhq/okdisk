@@ -334,6 +334,7 @@ public struct VerificationIssue: Codable, Equatable, Sendable {
     public var kind: String
     public var severity: String
     public var folderID: String?
+    public var sourcePath: String?
     public var relativePath: String?
     public var destinationRoot: String?
     public var message: String
@@ -342,15 +343,17 @@ public struct VerificationIssue: Codable, Equatable, Sendable {
         case kind
         case severity
         case folderID = "folder_id"
+        case sourcePath = "source_path"
         case relativePath = "relative_path"
         case destinationRoot = "destination_root"
         case message
     }
 
-    public init(kind: String, severity: String = "error", folderID: String? = nil, relativePath: String? = nil, destinationRoot: String? = nil, message: String) {
+    public init(kind: String, severity: String = "error", folderID: String? = nil, sourcePath: String? = nil, relativePath: String? = nil, destinationRoot: String? = nil, message: String) {
         self.kind = kind
         self.severity = severity
         self.folderID = folderID
+        self.sourcePath = sourcePath
         self.relativePath = relativePath
         self.destinationRoot = destinationRoot
         self.message = message

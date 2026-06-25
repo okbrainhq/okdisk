@@ -56,11 +56,11 @@ enum FileMirror {
         try snapshot(rootPath: rootPath, excludedPatterns: excludedPatterns, skipOKDiskArtifacts: true)
     }
 
-    static func snapshotTree(rootPath: String) throws -> Snapshot {
+    static func snapshotTree(rootPath: String, excludedPatterns: [String] = []) throws -> Snapshot {
         guard okdiskIsDirectory(rootPath) else {
             return Snapshot(rootPath: rootPath, nodes: [:])
         }
-        return try snapshot(rootPath: rootPath, excludedPatterns: [], skipOKDiskArtifacts: false)
+        return try snapshot(rootPath: rootPath, excludedPatterns: excludedPatterns, skipOKDiskArtifacts: !excludedPatterns.isEmpty)
     }
 
     static func mirrorSource(
@@ -155,15 +155,15 @@ enum FileMirror {
         return try snapshotsEquivalent(source, tree, lhsRoot: okdiskCanonicalExistingPath(sourceRoot), rhsRoot: treeRoot)
     }
 
-    static func compare(expectedRoot: String, expected: Snapshot, actualRoot: String, actual: Snapshot, folderID: String, destinationRoot: String) throws -> [VerificationIssue] {
+    static func compare(expectedRoot: String, expected: Snapshot, actualRoot: String, actual: Snapshot, folderID: String, sourcePath: String? = nil, destinationRoot: String) throws -> [VerificationIssue] {
         var issues: [VerificationIssue] = []
         for (rel, expectedNode) in expected.nodes {
             guard let actualNode = actual.nodes[rel] else {
-                issues.append(VerificationIssue(kind: "missing", folderID: folderID, relativePath: rel, destinationRoot: destinationRoot, message: "Missing replica entry \(rel)"))
+                issues.append(VerificationIssue(kind: "missing", folderID: folderID, sourcePath: sourcePath, relativePath: rel, destinationRoot: destinationRoot, message: "Missing replica entry \(rel)"))
                 continue
             }
             if expectedNode.kind != actualNode.kind {
-                issues.append(VerificationIssue(kind: "corrupt", folderID: folderID, relativePath: rel, destinationRoot: destinationRoot, message: "Node kind mismatch for \(rel)"))
+                issues.append(VerificationIssue(kind: "corrupt", folderID: folderID, sourcePath: sourcePath, relativePath: rel, destinationRoot: destinationRoot, message: "Node kind mismatch for \(rel)"))
                 continue
             }
             switch expectedNode.kind {
@@ -171,22 +171,22 @@ enum FileMirror {
                 break
             case .symlink:
                 if expectedNode.symlinkTarget != actualNode.symlinkTarget {
-                    issues.append(VerificationIssue(kind: "corrupt", folderID: folderID, relativePath: rel, destinationRoot: destinationRoot, message: "Symlink target mismatch for \(rel)"))
+                    issues.append(VerificationIssue(kind: "corrupt", folderID: folderID, sourcePath: sourcePath, relativePath: rel, destinationRoot: destinationRoot, message: "Symlink target mismatch for \(rel)"))
                 }
             case .regularFile:
                 if expectedNode.size != actualNode.size {
-                    issues.append(VerificationIssue(kind: "corrupt", folderID: folderID, relativePath: rel, destinationRoot: destinationRoot, message: "Size mismatch for \(rel)"))
+                    issues.append(VerificationIssue(kind: "corrupt", folderID: folderID, sourcePath: sourcePath, relativePath: rel, destinationRoot: destinationRoot, message: "Size mismatch for \(rel)"))
                 } else {
                     let expectedHash = try okdiskSHA256Hex(fileAt: expectedRoot + "/" + rel)
                     let actualHash = try okdiskSHA256Hex(fileAt: actualRoot + "/" + rel)
                     if expectedHash != actualHash {
-                        issues.append(VerificationIssue(kind: "corrupt", folderID: folderID, relativePath: rel, destinationRoot: destinationRoot, message: "Hash mismatch for \(rel)"))
+                        issues.append(VerificationIssue(kind: "corrupt", folderID: folderID, sourcePath: sourcePath, relativePath: rel, destinationRoot: destinationRoot, message: "Hash mismatch for \(rel)"))
                     }
                 }
             }
         }
         for rel in actual.nodes.keys where expected.nodes[rel] == nil {
-            issues.append(VerificationIssue(kind: "stale", folderID: folderID, relativePath: rel, destinationRoot: destinationRoot, message: "Stale replica entry \(rel)"))
+            issues.append(VerificationIssue(kind: "stale", folderID: folderID, sourcePath: sourcePath, relativePath: rel, destinationRoot: destinationRoot, message: "Stale replica entry \(rel)"))
         }
         return issues.sorted { ($0.relativePath ?? "") < ($1.relativePath ?? "") }
     }
