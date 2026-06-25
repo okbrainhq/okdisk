@@ -279,16 +279,16 @@ public final class OKDiskEngine {
             do {
                 replicas = try selectedReplicas(for: folder, from: state.connected)
             } catch OKDiskError.insufficientReplicas {
-                report.issues.append(VerificationIssue(kind: "replica_count", folderID: folder.folderID, message: "Replica count cannot be satisfied"))
+                report.issues.append(VerificationIssue(kind: "replica_count", folderID: folder.folderID, sourcePath: folder.sourcePath, message: "Replica count cannot be satisfied"))
                 continue
             }
             guard !replicas.isEmpty else {
-                report.issues.append(VerificationIssue(kind: "replica_count", folderID: folder.folderID, message: "No online replicas"))
+                report.issues.append(VerificationIssue(kind: "replica_count", folderID: folder.folderID, sourcePath: folder.sourcePath, message: "No online replicas"))
                 continue
             }
             if !request.deep {
                 for replica in replicas where !okdiskIsDirectory(replica.treeRoot(for: folder)) {
-                    report.issues.append(VerificationIssue(kind: "missing_tree", folderID: folder.folderID, destinationRoot: replica.canonicalRootPath, message: "Missing tree mirror"))
+                    report.issues.append(VerificationIssue(kind: "missing_tree", folderID: folder.folderID, sourcePath: folder.sourcePath, destinationRoot: replica.canonicalRootPath, message: "Missing tree mirror"))
                 }
                 continue
             }
@@ -300,25 +300,26 @@ public final class OKDiskEngine {
                 expected = try FileMirror.snapshotSource(rootPath: folder.sourcePath, excludedPatterns: folder.excludedPatterns)
             } else if let referenceReplica = replicas.first(where: { okdiskIsDirectory($0.treeRoot(for: folder)) }) {
                 expectedRoot = referenceReplica.treeRoot(for: folder)
-                expected = try FileMirror.snapshotTree(rootPath: expectedRoot)
+                expected = try FileMirror.snapshotTree(rootPath: expectedRoot, excludedPatterns: folder.excludedPatterns)
             } else {
-                report.issues.append(VerificationIssue(kind: "missing_tree", folderID: folder.folderID, message: "No source or replica tree available"))
+                report.issues.append(VerificationIssue(kind: "missing_tree", folderID: folder.folderID, sourcePath: folder.sourcePath, message: "No source or replica tree available"))
                 continue
             }
             report.checkedFiles += expected.fileCount
             for replica in replicas {
                 let actualRoot = replica.treeRoot(for: folder)
                 guard okdiskIsDirectory(actualRoot) else {
-                    report.issues.append(VerificationIssue(kind: "missing_tree", folderID: folder.folderID, destinationRoot: replica.canonicalRootPath, message: "Missing tree mirror"))
+                    report.issues.append(VerificationIssue(kind: "missing_tree", folderID: folder.folderID, sourcePath: folder.sourcePath, destinationRoot: replica.canonicalRootPath, message: "Missing tree mirror"))
                     continue
                 }
-                let actual = try FileMirror.snapshotTree(rootPath: actualRoot)
+                let actual = try FileMirror.snapshotTree(rootPath: actualRoot, excludedPatterns: folder.excludedPatterns)
                 report.issues += try FileMirror.compare(
                     expectedRoot: expectedRoot,
                     expected: expected,
                     actualRoot: actualRoot,
                     actual: actual,
                     folderID: folder.folderID,
+                    sourcePath: folder.sourcePath,
                     destinationRoot: replica.canonicalRootPath
                 )
             }

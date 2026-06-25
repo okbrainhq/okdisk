@@ -30,7 +30,8 @@ struct OKDiskCoreTestRunner {
             ("folder ID uses hostname and canonical path", testFolderIDUsesHostnameAndCanonicalPath),
             ("restore rejects traversal paths", testRestoreRejectsTraversalPaths),
             ("metadata replay tolerates partial last line and reports corrupt line", testMetadataReplayStatus),
-            ("destination config stores only roots", testDestinationConfigStoresOnlyRoots)
+            ("destination config stores only roots", testDestinationConfigStoresOnlyRoots),
+            ("verify ignores excluded files in replica", testVerifyIgnoresExcludedFiles)
         ]
 
         var failures = 0
@@ -114,6 +115,31 @@ struct OKDiskCoreTestRunner {
         try expect(raw.contains("destination_roots"), "config should contain destination_roots")
         try expect(!raw.contains("source_path"), "config must not contain source paths")
         try expect(!raw.contains("folder_id"), "config must not contain folder IDs")
+    }
+
+    static func testVerifyIgnoresExcludedFiles() async throws {
+        let root = try makeTempRoot()
+        let service = OKDiskService(configPath: root + "/config/destinations.json", hostname: "core-host", environment: .test)
+        let source = root + "/src"
+        try FileManager.default.createDirectory(atPath: source, withIntermediateDirectories: true)
+        try "hello".write(toFile: source + "/keep.txt", atomically: true, encoding: .utf8)
+
+        _ = try await service.attachDestination(.init(rootPath: root + "/dest"))
+        let folder = try await service.addFolder(.init(sourcePath: source, replicaCount: 1, excludedPatterns: [".DS_Store", ".okdisk/**"]))
+        _ = try await service.startBackup(folderID: folder.folderID)
+
+        // Inject an excluded file directly into the replica tree (simulating a stale .DS_Store)
+        let treeRoot = okdiskCanonicalExistingPath(root + "/dest") + "/data/hosts/core-host/\(folder.folderID)/tree"
+        try "stale".write(toFile: treeRoot + "/.DS_Store", atomically: true, encoding: .utf8)
+
+        let opID = try await service.startVerification(VerifyRequest(deep: true))
+        guard let op = await service.getOperation(opID), let report = op.verifyReport else {
+            throw TestFailure(message: "verify operation or report missing")
+        }
+        try expect(report.isHealthy, "deep verify should report zero issues when excluded files exist in replica")
+
+        // Also verify sourcePath is populated on the folder (basic shape check)
+        try expect(folder.sourcePath.hasPrefix("/"), "folder sourcePath should be an absolute path")
     }
 
     static func makeTempRoot() throws -> String {

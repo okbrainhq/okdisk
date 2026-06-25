@@ -804,9 +804,74 @@ struct OperationRow: View {
             }
 
             if let report = operation.verifyReport {
-                Text("Checked \(report.checkedFolders) folders, \(report.checkedFiles) files, \(report.issues.count) issues")
-                    .font(.caption)
-                    .foregroundStyle(report.issues.isEmpty ? Color.secondary : Color.orange)
+                if report.issues.isEmpty {
+                    Text("Checked \(report.checkedFolders) folders, \(report.checkedFiles) files — all healthy")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else {
+                    DisclosureGroup {
+                        let grouped = Dictionary(grouping: report.issues, by: { $0.sourcePath ?? "Destination Issues" })
+                        let sortedKeys = grouped.keys.sorted { a, b in
+                            if a == "Destination Issues" { return false }
+                            if b == "Destination Issues" { return true }
+                            return a < b
+                        }
+                        VStack(alignment: .leading, spacing: 10) {
+                            ForEach(sortedKeys, id: \.self) { sourcePath in
+                                let groupIssues = grouped[sourcePath] ?? []
+                                let maxDisplay = 100
+                                let displayed = Array(groupIssues.prefix(maxDisplay))
+                                VStack(alignment: .leading, spacing: 6) {
+                                    Text(sourcePath)
+                                        .font(.caption.bold())
+                                        .foregroundStyle(sourcePath == "Destination Issues" ? .orange : .primary)
+                                        .textSelection(.enabled)
+                                    ForEach(Array(displayed.enumerated()), id: \.offset) { _, issue in
+                                        HStack(alignment: .top, spacing: 8) {
+                                            Image(systemName: issueIcon(for: issue.kind))
+                                                .foregroundStyle(issueColor(for: issue.kind))
+                                                .frame(width: 14)
+                                                .font(.caption)
+                                            VStack(alignment: .leading, spacing: 2) {
+                                                if let rel = issue.relativePath {
+                                                    Text(rel)
+                                                        .font(.caption)
+                                                        .textSelection(.enabled)
+                                                    Text(issue.message)
+                                                        .font(.caption2)
+                                                        .foregroundStyle(.secondary)
+                                                } else {
+                                                    Text(issue.message)
+                                                        .font(.caption)
+                                                        .textSelection(.enabled)
+                                                }
+                                                if let dest = issue.destinationRoot {
+                                                    Text(dest)
+                                                        .font(.caption2)
+                                                        .foregroundStyle(.secondary)
+                                                        .lineLimit(1)
+                                                        .truncationMode(.middle)
+                                                }
+                                            }
+                                            Spacer()
+                                            StatusBadge(text: issue.kind, color: issueColor(for: issue.kind))
+                                        }
+                                    }
+                                    if groupIssues.count > maxDisplay {
+                                        Text("Showing \(maxDisplay) of \(groupIssues.count) issues")
+                                            .font(.caption2)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                }
+                            }
+                        }
+                        .padding(.top, 4)
+                    } label: {
+                        Label("\(report.issues.count) issues in \(Set(report.issues.map { $0.sourcePath ?? "Destination Issues" }).count) groups", systemImage: "exclamationmark.triangle.fill")
+                            .font(.caption)
+                            .foregroundStyle(.orange)
+                    }
+                }
             }
 
             if let completedAtUTC = operation.completedAtUTC {
@@ -879,5 +944,29 @@ private func operationColor(_ state: OperationState) -> Color {
     case .running: return .blue
     case .succeeded: return .green
     case .failed: return .red
+    }
+}
+
+private func issueIcon(for kind: String) -> String {
+    switch kind {
+    case "missing", "missing_tree": return "doc.questionmark"
+    case "corrupt": return "exclamationmark.octagon"
+    case "stale": return "clock.badge.exclamationmark"
+    case "offline": return "wifi.slash"
+    case "conflict": return "arrow.triangle.2.circlepath"
+    case "replica_count": return "person.2.slash"
+    default: return "exclamationmark.triangle"
+    }
+}
+
+private func issueColor(for kind: String) -> Color {
+    switch kind {
+    case "missing", "missing_tree": return .orange
+    case "corrupt": return .red
+    case "stale": return .yellow
+    case "offline": return .gray
+    case "conflict": return .purple
+    case "replica_count": return .blue
+    default: return .orange
     }
 }
