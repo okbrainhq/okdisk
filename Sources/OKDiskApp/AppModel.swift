@@ -161,6 +161,27 @@ final class AppModel: ObservableObject {
     }
 
     @discardableResult
+    func pruneDestination(_ destination: DestinationStatus) async -> Bool {
+        guard conflicts.isEmpty else {
+            lastError = "Resolve destination conflicts before pruning."
+            return false
+        }
+        guard destination.state != .offline else {
+            lastError = "Destination must be online before pruning."
+            return false
+        }
+        guard confirm(
+            title: "Prune Destination?",
+            message: "OKDisk will delete backup tree directories on this destination that are no longer linked to any active source folder replica.\n\nThis cannot be undone.\n\n\(destination.rootPath)",
+            confirmTitle: "Prune"
+        ) else { return false }
+
+        return await runOperation("Pruning destination") {
+            try await service.startPruneDestination(PruneDestinationRequest(destinationRootPath: destination.rootPath, confirmed: true))
+        }
+    }
+
+    @discardableResult
     func addFolder(path: String, replicaCount: Int, excludedPatterns: [String]) async -> Bool {
         guard conflicts.isEmpty else {
             lastError = "Resolve destination conflicts before changing folders."
@@ -428,6 +449,7 @@ enum OKDiskAX {
     static let refreshButton = "okdisk.refresh"
     static let addDestination = "okdisk.destinations.add"
     static let destinationList = "okdisk.destinations.list"
+    static let pruneDestination = "okdisk.destinations.prune"
     static let addFolder = "okdisk.folders.add"
     static let folderList = "okdisk.folders.list"
     static let restoreRun = "okdisk.restore.run"
@@ -538,6 +560,10 @@ final class PreviewOKDiskService: OKDiskServiceProtocol {
 
     func startRepair(_ request: RepairRequest) async throws -> String {
         makeOperation(kind: .repair, summary: OperationSummary(repairedFiles: 1, message: "Preview repair completed"))
+    }
+
+    func startPruneDestination(_ request: PruneDestinationRequest) async throws -> String {
+        makeOperation(kind: .prune, summary: OperationSummary(filesDeleted: 2, prunedTrees: 1, message: "Preview prune completed"))
     }
 
     func getStateConflicts() async throws -> [DestinationStateConflict] { conflicts }
